@@ -45,6 +45,7 @@ Trong body, mọi request đều cần trường `geminiApiKey` (string) do khá
 | `POST /api/ocr/driver-license` | Trích xuất thông tin GPLX |
 | `POST /api/face/compare`    | So sánh hai ảnh khuôn mặt   |
 | `POST /api/face/validate`   | Kiểm tra chất lượng & live  |
+| `GET /api/health`           | Kiểm tra trạng thái dịch vụ |
 
 Các trường chung trong body của mọi endpoint:
 
@@ -136,6 +137,23 @@ Các trường chung trong body của mọi endpoint:
   | `isLive`       | bool   | Ảnh có phải người thật/không phải ảnh chụp màn hình |
   | `qualityScore` | number | 0 → 1                                            |
   | `reason`       | string | Mô tả ngắn, ví dụ `OK`, `LOW_QUALITY_OR_NOT_LIVE` |
+
+  ### 5.5 GET /api/health
+
+  - **Mô tả:** Endpoint kiểm tra nhanh trạng thái dịch vụ (không cần body, chỉ gọi GET).
+  - **Response mẫu:**
+    ```json
+    {
+      "status": "UP",
+      "env": "production",
+      "uptimeSeconds": 12345,
+      "timestamp": "2025-11-21T07:00:00.000Z"
+    }
+    ```
+    - `status`: Luôn `UP` nếu server sẵn sàng nhận request mới.
+    - `env`: Giá trị `NODE_ENV` hiện tại trên server.
+    - `uptimeSeconds`: Số giây server đã chạy từ lần khởi động gần nhất.
+    - `timestamp`: thời điểm hệ thống trả phản hồi.
 
 ## 6. Mẫu phản hồi lỗi
 
