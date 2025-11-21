@@ -44,14 +44,16 @@ const driverLicenseResponseSchema: Schema = {
   required: ['documentType', 'fullName', 'dateOfBirth', 'licenseNumber', 'issueDate', 'expiryDate', 'category', 'confidenceScore'],
 };
 
+const stringOrEmpty = z.string().optional().transform((value) => value ?? '');
+
 const idCardResultSchema: z.ZodType<OcrIdCardResultDto> = z
   .object({
     documentType: z.string().optional(),
-    fullName: z.string().min(1),
-    dateOfBirth: z.string().min(1),
-    documentNumber: z.string().min(1),
-    expiryDate: z.string().min(1),
-    issuingCountry: z.string().min(1),
+    fullName: stringOrEmpty,
+    dateOfBirth: stringOrEmpty,
+    documentNumber: stringOrEmpty,
+    expiryDate: stringOrEmpty,
+    issuingCountry: stringOrEmpty,
     confidenceScore: z.number().min(0).max(1),
   })
   .transform((value) => ({
@@ -67,12 +69,12 @@ const idCardResultSchema: z.ZodType<OcrIdCardResultDto> = z
 const driverLicenseResultSchema: z.ZodType<OcrDriverLicenseResultDto> = z
   .object({
     documentType: z.string().optional(),
-    fullName: z.string().min(1),
-    dateOfBirth: z.string().min(1),
-    licenseNumber: z.string().min(1),
-    issueDate: z.string().min(1),
-    expiryDate: z.string().min(1),
-    category: z.string().min(1),
+    fullName: stringOrEmpty,
+    dateOfBirth: stringOrEmpty,
+    licenseNumber: stringOrEmpty,
+    issueDate: stringOrEmpty,
+    expiryDate: stringOrEmpty,
+    category: stringOrEmpty,
     confidenceScore: z.number().min(0).max(1),
   })
   .transform((value) => ({
