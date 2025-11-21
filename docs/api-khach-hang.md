@@ -138,7 +138,7 @@ Các trường chung trong body của mọi endpoint:
   | `qualityScore` | number | 0 → 1                                            |
   | `reason`       | string | Mô tả ngắn, ví dụ `OK`, `LOW_QUALITY_OR_NOT_LIVE` |
 
-  ### 5.5 GET /api/health
+### 5.5 GET /api/health
 
   - **Mô tả:** Endpoint kiểm tra nhanh trạng thái dịch vụ (không cần body, chỉ gọi GET).
   - **Response mẫu:**
@@ -226,3 +226,4 @@ curl -X POST https://api.example.com/api/face/validate \
 | Kênh liên hệ      | support@example.com                                 |
 
 > Mọi thay đổi hợp đồng API sẽ được thông báo tối thiểu 2 tuần trước khi áp dụng môi trường production.
+
