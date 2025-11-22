@@ -226,4 +226,3 @@ curl -X POST https://api.example.com/api/face/validate \
 | Kênh liên hệ      | support@example.com                                 |
 
 > Mọi thay đổi hợp đồng API sẽ được thông báo tối thiểu 2 tuần trước khi áp dụng môi trường production.
-
