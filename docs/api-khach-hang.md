@@ -92,6 +92,7 @@ Các trường chung trong body của mọi endpoint (bổ sung `prompt`, bắt 
 ```json
 {
   "geminiApiKey": "YOUR_GEMINI_KEY",
+  "prompt": "Trích xuất các trường CCCD và trả 'reasonText' giải thích ngắn lý do cho từng trường; đặt isValidate=true nếu đủ chắc chắn.",
   "model": "gemini-flash-latest",
   "requestId": "req-demo-001",
   "aiRequestTimeoutMs": 5000,
@@ -212,6 +213,7 @@ curl -X POST https://api.example.com/api/face/validate \
   -H "Content-Type: application/json" \
   -d '{
         "geminiApiKey": "YOUR_GEMINI_KEY",
+        "prompt": "Đánh giá isLive và qualityScore; trả isValidate và reasonText giải thích lý do; trả JSON.",
         "model": "gemini-flash-latest",
         "requestId": "req-demo-validate",
         "aiRequestTimeoutMs": 5000,
