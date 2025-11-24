@@ -26,6 +26,7 @@ export class OcrService implements IOcrService {
     const payload = {
       imageBase64: request.imageBase64,
       apiKey: request.geminiApiKey,
+      prompt: request.prompt,
       model,
       aiRequestTimeoutMs,
       aiMaxRetries,
@@ -46,6 +47,7 @@ export class OcrService implements IOcrService {
     const payload = {
       imageBase64: request.imageBase64,
       apiKey: request.geminiApiKey,
+      prompt: request.prompt,
       model,
       aiRequestTimeoutMs,
       aiMaxRetries,

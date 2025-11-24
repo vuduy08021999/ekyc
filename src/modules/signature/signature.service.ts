@@ -110,6 +110,9 @@ export class SignatureService {
       createdAt: new Date().toISOString(),
       serialNumber: genResult.serialNumber,
       fingerprint,
+      // store original subject and security marker if generator returned them
+      subject: subject || { commonName: ekycId },
+      securityCode: (genResult as any).securityCode ?? undefined,
     } as any;
 
     // write metadata sidecar

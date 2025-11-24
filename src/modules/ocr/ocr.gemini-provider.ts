@@ -8,12 +8,7 @@ import {
   OcrProvider,
 } from './ocr.types';
 
-const ID_CARD_PROMPT = `Bạn là hệ thống OCR chuyên xử lý căn cước công dân Việt Nam.
-Trích xuất chính xác các trường yêu cầu. Nếu không nhìn thấy thông tin, trả chuỗi rỗng nhưng giữ đúng cấu trúc JSON.
-Ước lượng confidenceScore trong khoảng 0→1 (1 là chắc chắn nhất). Chỉ trả JSON phù hợp schema.`;
-
-const DRIVER_LICENSE_PROMPT = `Bạn là hệ thống OCR cho giấy phép lái xe Việt Nam. Trích xuất đầy đủ thông tin.
-Nếu thiếu dữ liệu, để chuỗi rỗng. Ước lượng confidenceScore 0→1. Chỉ trả JSON đúng schema.`;
+// Prompts are supplied by the client via request.prompt; constants removed to enforce required prompt from caller.
 
 const idCardResponseSchema: Schema = {
   type: SchemaType.OBJECT,
@@ -25,8 +20,10 @@ const idCardResponseSchema: Schema = {
     expiryDate: { type: SchemaType.STRING },
     issuingCountry: { type: SchemaType.STRING },
     confidenceScore: { type: SchemaType.NUMBER, description: '0-1' },
+    isValidate: { type: SchemaType.BOOLEAN, description: 'AI-provided validation result' },
+    reasonText: { type: SchemaType.STRING, description: 'Human-readable explanation from AI' },
   },
-  required: ['documentType', 'fullName', 'dateOfBirth', 'documentNumber', 'expiryDate', 'issuingCountry', 'confidenceScore'],
+  required: ['documentType', 'fullName', 'dateOfBirth', 'documentNumber', 'expiryDate', 'issuingCountry', 'confidenceScore', 'isValidate', 'reasonText'],
 };
 
 const driverLicenseResponseSchema: Schema = {
@@ -40,8 +37,10 @@ const driverLicenseResponseSchema: Schema = {
     expiryDate: { type: SchemaType.STRING },
     category: { type: SchemaType.STRING },
     confidenceScore: { type: SchemaType.NUMBER },
+    isValidate: { type: SchemaType.BOOLEAN, description: 'AI-provided validation result' },
+    reasonText: { type: SchemaType.STRING, description: 'Human-readable explanation from AI' },
   },
-  required: ['documentType', 'fullName', 'dateOfBirth', 'licenseNumber', 'issueDate', 'expiryDate', 'category', 'confidenceScore'],
+  required: ['documentType', 'fullName', 'dateOfBirth', 'licenseNumber', 'issueDate', 'expiryDate', 'category', 'confidenceScore', 'isValidate', 'reasonText'],
 };
 
 const stringOrEmpty = z.string().optional().transform((value) => value ?? '');
@@ -55,6 +54,8 @@ const idCardResultSchema: z.ZodType<OcrIdCardResultDto> = z
     expiryDate: stringOrEmpty,
     issuingCountry: stringOrEmpty,
     confidenceScore: z.number().min(0).max(1),
+    reasonText: stringOrEmpty,
+    isValidate: z.boolean().optional().transform((v) => v ?? false),
   })
   .transform((value) => ({
     documentType: 'ID_CARD',
@@ -64,6 +65,8 @@ const idCardResultSchema: z.ZodType<OcrIdCardResultDto> = z
     expiryDate: value.expiryDate,
     issuingCountry: value.issuingCountry,
     confidenceScore: value.confidenceScore,
+    reasonText: value.reasonText,
+    isValidate: value.isValidate,
   }));
 
 const driverLicenseResultSchema: z.ZodType<OcrDriverLicenseResultDto> = z
@@ -76,6 +79,8 @@ const driverLicenseResultSchema: z.ZodType<OcrDriverLicenseResultDto> = z
     expiryDate: stringOrEmpty,
     category: stringOrEmpty,
     confidenceScore: z.number().min(0).max(1),
+    reasonText: stringOrEmpty,
+    isValidate: z.boolean().optional().transform((v) => v ?? false),
   })
   .transform((value) => ({
     documentType: 'DRIVER_LICENSE',
@@ -86,6 +91,8 @@ const driverLicenseResultSchema: z.ZodType<OcrDriverLicenseResultDto> = z
     expiryDate: value.expiryDate,
     category: value.category,
     confidenceScore: value.confidenceScore,
+    reasonText: value.reasonText,
+    isValidate: value.isValidate,
   }));
 
 export class GeminiOcrProvider implements OcrProvider {
@@ -93,16 +100,18 @@ export class GeminiOcrProvider implements OcrProvider {
     const image = buildInlineImagePart(params.imageBase64);
 
     try {
-      return await generateStructuredJson<OcrIdCardResultDto>({
+      const result = await generateStructuredJson<OcrIdCardResultDto>({
         apiKey: params.apiKey,
         model: params.model,
-        prompt: ID_CARD_PROMPT,
+        prompt: params.prompt,
         images: [image],
         responseSchema: idCardResponseSchema,
         timeoutMs: params.aiRequestTimeoutMs,
         maxRetries: params.aiMaxRetries,
         zodSchema: idCardResultSchema,
       });
+
+      return result as OcrIdCardResultDto;
     } catch (error) {
       throwGeminiProviderError('ocr-id-card', error);
     }
@@ -112,16 +121,18 @@ export class GeminiOcrProvider implements OcrProvider {
     const image = buildInlineImagePart(params.imageBase64);
 
     try {
-      return await generateStructuredJson<OcrDriverLicenseResultDto>({
+      const result = await generateStructuredJson<OcrDriverLicenseResultDto>({
         apiKey: params.apiKey,
         model: params.model,
-        prompt: DRIVER_LICENSE_PROMPT,
+        prompt: params.prompt,
         images: [image],
         responseSchema: driverLicenseResponseSchema,
         timeoutMs: params.aiRequestTimeoutMs,
         maxRetries: params.aiMaxRetries,
         zodSchema: driverLicenseResultSchema,
       });
+
+      return result as OcrDriverLicenseResultDto;
     } catch (error) {
       throwGeminiProviderError('ocr-driver-license', error);
     }

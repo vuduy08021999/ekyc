@@ -22,6 +22,7 @@ export class FaceService implements IFaceService {
       sourceImageBase64: request.sourceImageBase64,
       targetImageBase64: request.targetImageBase64,
       apiKey: request.geminiApiKey,
+      prompt: request.prompt,
       model,
       aiRequestTimeoutMs,
       aiMaxRetries,
@@ -38,6 +39,7 @@ export class FaceService implements IFaceService {
     const payload = {
       imageBase64: request.imageBase64,
       apiKey: request.geminiApiKey,
+      prompt: request.prompt,
       model,
       aiRequestTimeoutMs,
       aiMaxRetries,

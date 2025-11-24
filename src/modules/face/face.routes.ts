@@ -11,6 +11,7 @@ const service = new FaceService(provider);
 
 const baseGeminiSchema = z.object({
   geminiApiKey: z.string().min(1),
+  prompt: z.string().min(1),
   model: z.string().min(1),
   requestId: z.string().min(1).optional(),
   aiRequestTimeoutMs: z.number().int().min(1).max(MAX_GEMINI_TIMEOUT_MS),

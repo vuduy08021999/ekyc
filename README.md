@@ -14,7 +14,7 @@
 - **Stateless images:** server không ghi ảnh ra đĩa; base64 được stream thẳng vào Gemini theo từng request (đáp ứng yêu cầu không lưu trữ).
 - **DTO chia sẻ:**
   - `ApiResponse<T>`: chuẩn hóa body phản hồi.
-  - `BaseGeminiRequestDto`: chứa `geminiApiKey`, `model`, `requestId`, `aiRequestTimeoutMs`, `aiMaxRetries`.
+  - `BaseGeminiRequestDto`: chứa `geminiApiKey`, `prompt`, `model`, `requestId`, `aiRequestTimeoutMs`, `aiMaxRetries`.
 
 **Pipeline mỗi request:**
 1. Client gửi POST JSON (ảnh base64 + khoá + model mong muốn + requestId + thông số timeout/retry cho Gemini; phần structured output do server toàn quyền quyết định).
@@ -87,6 +87,7 @@ Port mặc định `3000` (set `PORT` nếu muốn đổi).
 ```json
 {
   "geminiApiKey": "YOUR_GEMINI_KEY",
+  "prompt": "Please extract required fields as JSON.",
   "model": "gemini-flash-latest",
   "requestId": "req-123",
   "aiRequestTimeoutMs": 5000,
@@ -101,6 +102,7 @@ Port mặc định `3000` (set `PORT` nếu muốn đổi).
 ```json
 {
   "geminiApiKey": "YOUR_GEMINI_KEY",
+  "prompt": "Please return face quality and isLive as JSON.",
   "model": "gemini-2.0-flash",
   "requestId": "req-face",
   "aiRequestTimeoutMs": 7000,

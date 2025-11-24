@@ -1,5 +1,6 @@
 export interface BaseGeminiRequestDto {
   geminiApiKey: string;
+  prompt: string;
   model: string;
   requestId?: string;
   aiRequestTimeoutMs: number;

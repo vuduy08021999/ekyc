@@ -20,6 +20,8 @@ export interface OcrIdCardResultDto {
   expiryDate: string;
   issuingCountry: string;
   confidenceScore: number;
+  isValidate: boolean;
+  reasonText: string;
 }
 
 export interface OcrDriverLicenseResultDto {
@@ -31,12 +33,15 @@ export interface OcrDriverLicenseResultDto {
   expiryDate: string;
   category: string;
   confidenceScore: number;
+  isValidate: boolean;
+  reasonText: string;
 }
 
 export interface OcrProvider {
   ocrIdCard(params: {
     imageBase64: string;
     apiKey: string;
+    prompt: string;
     model: string;
     aiRequestTimeoutMs: number;
     aiMaxRetries: number;
@@ -44,6 +49,7 @@ export interface OcrProvider {
   ocrDriverLicense(params: {
     imageBase64: string;
     apiKey: string;
+    prompt: string;
     model: string;
     aiRequestTimeoutMs: number;
     aiMaxRetries: number;

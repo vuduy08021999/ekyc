@@ -48,11 +48,12 @@ Trong body, mọi request đều cần trường `geminiApiKey` (string) do khá
 | `GET /api/health`           | Kiểm tra trạng thái dịch vụ |
 
 Các trường chung trong body của mọi endpoint:
+Các trường chung trong body của mọi endpoint (bổ sung `prompt`, bắt buộc):
 
 ```jsonc
 {
   "geminiApiKey": "string",     // bắt buộc
-  "model": "string",            // bắt buộc, ví dụ: gemini-flash-latest
+  "prompt": "string",           // bắt buộc: prompt/huấn luyện ngắn để server gửi xuống Gemini
   "requestId": "string",        // tùy chọn (khuyên dùng để map response)
   "aiRequestTimeoutMs": 5000,   // bắt buộc: timeout tối đa mỗi lần gọi Gemini
   "aiMaxRetries": 2             // bắt buộc: số lần retry tối đa khi lỗi
@@ -84,6 +85,8 @@ Các trường chung trong body của mọi endpoint:
   | `expiryDate`     | string   | Ngày hết hạn             |
   | `issuingCountry` | string   | Ví dụ `VN`              |
   | `confidenceScore`| number   | 0 → 1, càng cao càng tốt |
+  | `reasonText`     | string   | Giải thích chi tiết do AI trả về (mô tả lý do kết luận) |
+  | `isValidate`     | boolean  | Trường do AI trả về (theo prompt). Ví dụ `true` nếu AI xác định đã đọc được `documentNumber` (CCCD) |
 
 **Ví dụ request:**
 ```json
@@ -116,6 +119,8 @@ Các trường chung trong body của mọi endpoint:
   | `expiryDate`     | string           | Ngày hết hạn            |
   | `category`       | string           | Hạng bằng (A1, B2, C...) |
   | `confidenceScore`| number           | 0 → 1, càng cao càng tốt |
+  | `reasonText`     | string           | Giải thích chi tiết do AI trả về (mô tả lý do kết luận) |
+  | `isValidate`     | boolean          | Trường do AI trả về (theo prompt). Ví dụ `true` nếu AI xác định đã đọc được `licenseNumber` (GPLX) |
 
 ### 5.3 POST /api/face/compare
 
@@ -127,6 +132,8 @@ Các trường chung trong body của mọi endpoint:
   |-------------------|--------|------------------------------------------|
   | `similarityScore` | number | 0 → 1, càng gần 1 càng giống             |
   | `isMatch`         | bool   | `true` nếu vượt ngưỡng khớp (80% trở lên)|
+  | `reasonText`      | string | Giải thích chi tiết do AI trả về (ví dụ nêu các đặc điểm trùng khớp/không trùng khớp) |
+  | `isValidate`      | bool   | Trường do AI trả về (theo prompt). Ví dụ `true` nếu AI xác định kết quả đủ điều kiện để chấp nhận |
 
 ### 5.4 POST /api/face/validate
 
@@ -137,6 +144,8 @@ Các trường chung trong body của mọi endpoint:
   | `isLive`       | bool   | Ảnh có phải người thật/không phải ảnh chụp màn hình |
   | `qualityScore` | number | 0 → 1                                            |
   | `reason`       | string | Mô tả ngắn, ví dụ `OK`, `LOW_QUALITY_OR_NOT_LIVE` |
+  | `reasonText`   | string | Giải thích chi tiết do AI trả về (mô tả lý do cho đánh giá `reason`) |
+  | `isValidate`   | bool   | Trường do AI trả về (theo prompt). Ví dụ `true` nếu AI xác định ảnh đạt điều kiện (ví dụ `isLive = true`) |
 
 ### 5.5 GET /api/health
 

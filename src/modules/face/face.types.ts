@@ -12,12 +12,16 @@ export interface FaceValidateRequestDto extends BaseGeminiRequestDto {
 export interface FaceCompareResultDto {
   similarityScore: number;
   isMatch: boolean;
+  isValidate: boolean;
+  reasonText: string;
 }
 
 export interface FaceValidateResultDto {
   isLive: boolean;
   qualityScore: number;
   reason: string;
+  isValidate: boolean;
+  reasonText: string;
 }
 
 export interface FaceProvider {
@@ -25,6 +29,7 @@ export interface FaceProvider {
     sourceImageBase64: string;
     targetImageBase64: string;
     apiKey: string;
+    prompt: string;
     model: string;
     aiRequestTimeoutMs: number;
     aiMaxRetries: number;
@@ -32,6 +37,7 @@ export interface FaceProvider {
   validateFace(params: {
     imageBase64: string;
     apiKey: string;
+    prompt: string;
     model: string;
     aiRequestTimeoutMs: number;
     aiMaxRetries: number;
