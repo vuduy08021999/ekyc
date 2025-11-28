@@ -35,22 +35,7 @@ export class CertificateGenerator {
     cert.setSubject(attrs);
     cert.setIssuer(attrs);
 
-    cert.setExtensions([
-      { name: 'basicConstraints', cA: false },
-      { name: 'keyUsage', digitalSignature: true, nonRepudiation: true, keyEncipherment: true },
-      { name: 'extKeyUsage', clientAuth: true, emailProtection: true },
-      { name: 'nsCertType', client: true, email: true },
-      subject?.email ? { name: 'subjectAltName', altNames: [{ type: 1, value: subject.email }] } : undefined,
-    ].filter(Boolean));
-
-    cert.sign(keys.privateKey, forge.md.sha256.create());
-
-    const certPem = forge.pki.certificateToPem(cert);
-    const keyPem = forge.pki.privateKeyToPem(keys.privateKey);
-
-    // If a server secret is configured, compute a securityCode HMAC over an identifier
-    // we can later use to recognize this certificate. Prefer using provided subject.commonName
-    // as the public identifier (ekycId) if present.
+    // Decide ekycId early so we can include it as an extension before signing
     let ekycId: string | undefined = undefined;
     try {
       ekycId = subject?.commonName || options?.ekycId;
@@ -58,7 +43,18 @@ export class CertificateGenerator {
       ekycId = undefined;
     }
 
-    // Build extension payload if secret available and ekycId present
+    // Build base extensions and include our custom extension if secret available
+    const baseExtensions: any[] = [
+      { name: 'basicConstraints', cA: false },
+      { name: 'keyUsage', digitalSignature: true, nonRepudiation: true, keyEncipherment: true },
+      { name: 'extKeyUsage', clientAuth: true, emailProtection: true },
+      { name: 'nsCertType', client: true, email: true },
+      subject?.email ? { name: 'subjectAltName', altNames: [{ type: 1, value: subject.email }] } : undefined,
+    ].filter(Boolean);
+
+    // If a server secret is configured, compute a securityCode HMAC over the ekycId
+    // and embed it as a non-critical custom extension so verification can be done
+    // later without the private key.
     let securityCode: string | undefined = undefined;
     const securitySecret = process.env.SIGN_SECURITY_SECRET;
     if (securitySecret && ekycId) {
@@ -67,23 +63,23 @@ export class CertificateGenerator {
         const payload = JSON.stringify({ v: 1, ekycId, code: securityCode });
         const octet = forge.asn1.create(forge.asn1.Class.UNIVERSAL, forge.asn1.Type.OCTETSTRING, false, forge.util.encodeUtf8(payload));
         const extDer = forge.asn1.toDer(octet).getBytes();
-        // Append our custom extension (private OID). Non-critical so other tooling ignores it.
-        cert.setExtensions((cert.extensions || []).concat([
-          { id: '1.3.6.1.4.1.55555.1.2', critical: false, value: extDer },
-        ]));
+        baseExtensions.push({ id: '1.3.6.1.4.1.55555.1.2', critical: false, value: extDer });
+        console.log('[CertificateGenerator] Will embed extension OID 1.3.6.1.4.1.55555.1.2:', payload);
+        console.log('[CertificateGenerator] SecurityCode:', securityCode);
       } catch (e) {
-        // If extension encoding fails, continue without it (do not hard-fail cert generation)
         const msg = (e as any)?.message ?? String(e);
-        console.warn('[CertificateGenerator] Failed to add security extension:', msg);
+        console.warn('[CertificateGenerator] Failed to build security extension:', msg);
       }
     }
 
-    const safeContents = forge.pkcs12.toPkcs12Asn1(
-      keys.privateKey,
-      [cert],
-      passphrase,
-      { algorithm: '3des', friendlyName },
-    );
+    cert.setExtensions(baseExtensions);
+
+    cert.sign(keys.privateKey, forge.md.sha256.create());
+
+    const certPem = forge.pki.certificateToPem(cert);
+    const keyPem = forge.pki.privateKeyToPem(keys.privateKey);
+
+    const safeContents = forge.pkcs12.toPkcs12Asn1(keys.privateKey, [cert], passphrase, { algorithm: '3des', friendlyName });
     const p12Der = forge.asn1.toDer(safeContents).getBytes();
     const p12 = Buffer.from(p12Der, 'binary');
 
