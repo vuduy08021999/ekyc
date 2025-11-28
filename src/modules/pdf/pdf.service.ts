@@ -511,10 +511,70 @@ async function verifyPdfBase64(opts: { pdfBase64: string; details?: boolean }): 
     if (!hex) continue;
 
     try {
+      // Robust PKCS#7 parsing: some PDFs pad the signature contents with
+      // trailing zero bytes to fill the placeholder. node-forge's ASN.1
+      // parser can complain about "Unparsed DER bytes remain" in that case.
+      // Strategy: try parsing as-is; if it fails, attempt to trim common
+      // padding bytes (0x00, 0xff, 0x20) from the end and retry. As a
+      // final fallback, try progressively trimming a few hundred bytes.
       const sigBuf = Buffer.from(hex, 'hex');
-      const derBinary = sigBuf.toString('binary');
-      const asn1 = forge.asn1.fromDer(derBinary);
-      const p7 = forge.pkcs7.messageFromAsn1(asn1);
+
+      const tryParse = (buffer: Buffer) => {
+        try {
+          const derBinary = buffer.toString('binary');
+          const asn1 = forge.asn1.fromDer(derBinary);
+          const p7 = forge.pkcs7.messageFromAsn1(asn1);
+          return p7;
+        } catch (err) {
+          throw err;
+        }
+      };
+
+      let p7: any | null = null;
+      try {
+        p7 = tryParse(sigBuf);
+      } catch (firstErr) {
+        // attempt to trim common padding bytes
+        const paddedBytes = [0x00, 0xff, 0x20];
+        let trimmed = Buffer.from(sigBuf);
+        let trimmedOnce = false;
+        for (let i = 0; i < trimmed.length && i < 4096; i++) {
+          if (trimmed.length === 0) break;
+          const last = trimmed[trimmed.length - 1];
+          if (last === undefined) break;
+          if (paddedBytes.includes(last)) {
+            trimmed = trimmed.slice(0, trimmed.length - 1);
+            trimmedOnce = true;
+            try {
+              p7 = tryParse(trimmed);
+              break;
+            } catch (_) {
+              continue;
+            }
+          } else {
+            break;
+          }
+        }
+
+        // aggressive fallback: try progressively trimming up to 1024 bytes
+        if (!p7) {
+          const maxTrim = Math.min(1024, sigBuf.length - 1);
+          for (let t = 1; t <= maxTrim; t++) {
+            try {
+              const cand = sigBuf.slice(0, sigBuf.length - t);
+              p7 = tryParse(cand);
+              if (p7) break;
+            } catch (_) {
+              // continue trying
+            }
+          }
+        }
+
+        if (!p7) {
+          // give up and rethrow the original error message for visibility
+          throw firstErr;
+        }
+      }
 
       const certInfos: any[] = [];
       const certs = (p7 && p7.certificates) || [];
