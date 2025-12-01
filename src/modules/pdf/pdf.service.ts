@@ -29,61 +29,73 @@ const hexToRgb = (h: string) => {
 };
 
 async function runPdf2jsonCliOnPdfBuffer(buf: Buffer, tmpPrefix = 'pdf2json_cli_') {
-  // writes temp pdf and runs pdf2json CLI, returns parsed JSON or null
-  const tmpDir = path.resolve(__dirname, '../../../tmp/pdf2json_cli');
-  if (!fsSync.existsSync(tmpDir)) fsSync.mkdirSync(tmpDir, { recursive: true });
+  // Write PDF to a system temp directory, run pdf2json CLI synchronously with a
+  // timeout, read generated JSON and then CLEAN UP the temporary directory.
+  // This prevents accumulation of parser artifacts on the project disk.
+  const os = require('os');
+  const child = require('child_process');
+
+  const tmpBase = os.tmpdir();
+  // mkdtempSync will append random chars to the prefix
+  const tmpDir = fsSync.mkdtempSync(path.join(tmpBase, 'pdf2json-'));
   const tmpPdf = path.join(tmpDir, `${tmpPrefix}${Date.now()}.pdf`);
-  fsSync.writeFileSync(tmpPdf, buf);
-
-  const localBin = path.resolve(__dirname, '../../../node_modules/.bin/pdf2json');
-  const localBinCmd = localBin + (process.platform === 'win32' ? '.cmd' : '');
-  const pdf2jsonJs = path.resolve(__dirname, '../../../node_modules/pdf2json/bin/pdf2json.js');
-
-  const execFile = require('child_process').execFile;
-  const spawnNode = require('child_process').spawnSync;
-
-  let ran = false;
-  // Try local .cmd / binary
   try {
-    if (fsSync.existsSync(localBinCmd)) {
-      execFile(localBinCmd, ['-f', tmpPdf, '-o', tmpDir], { cwd: path.resolve(__dirname, '../../../') });
-      ran = true;
-    }
-  } catch (e) {
-    // ignore
-  }
+    fsSync.writeFileSync(tmpPdf, buf);
 
-  // try node <pdf2jsonJs>
-  if (!ran && fsSync.existsSync(pdf2jsonJs)) {
+    const root = path.resolve(__dirname, '../../../');
+    const localBin = path.resolve(root, 'node_modules/.bin/pdf2json');
+    const localBinCmd = localBin + (process.platform === 'win32' ? '.cmd' : '');
+    const pdf2jsonJs = path.resolve(root, 'node_modules/pdf2json/bin/pdf2json.js');
+
+    const TIMEOUT_MS = 30_000; // 30s timeout for CLI
+    let ran = false;
+    let spawnResult: any = null;
+
     try {
-      spawnNode(process.execPath, [pdf2jsonJs, '-f', tmpPdf, '-o', tmpDir], { cwd: path.resolve(__dirname, '../../../') });
-      ran = true;
+      if (fsSync.existsSync(localBinCmd)) {
+        spawnResult = child.spawnSync(localBinCmd, ['-f', tmpPdf, '-o', tmpDir], { cwd: root, timeout: TIMEOUT_MS });
+        ran = spawnResult && spawnResult.status === 0;
+      }
     } catch (e) {
-      // ignore
+      // ignore and try next option
     }
-  }
 
-  // fallback to npx
-  if (!ran) {
-    try {
-      execFile('npx', ['pdf2json', '-f', tmpPdf, '-o', tmpDir], { cwd: path.resolve(__dirname, '../../../') });
-      ran = true;
-    } catch (e) {
-      // ignore
+    if (!ran && fsSync.existsSync(pdf2jsonJs)) {
+      try {
+        spawnResult = child.spawnSync(process.execPath, [pdf2jsonJs, '-f', tmpPdf, '-o', tmpDir], { cwd: root, timeout: TIMEOUT_MS });
+        ran = spawnResult && spawnResult.status === 0;
+      } catch (e) {
+        // ignore
+      }
     }
-  }
 
-  if (!ran) return null;
+    if (!ran) {
+      try {
+        spawnResult = child.spawnSync('npx', ['pdf2json', '-f', tmpPdf, '-o', tmpDir], { cwd: root, timeout: TIMEOUT_MS });
+        ran = spawnResult && spawnResult.status === 0;
+      } catch (e) {
+        // ignore
+      }
+    }
 
-  // find generated JSON
-  const generated = fsSync.readdirSync(tmpDir).find((f) => f.startsWith(tmpPrefix) && f.endsWith('.json'));
-  if (!generated) return null;
-  try {
+    if (!ran) return null;
+
+    const generated = fsSync.readdirSync(tmpDir).find((f) => f.endsWith('.json'));
+    if (!generated) return null;
+
     const raw = fsSync.readFileSync(path.join(tmpDir, generated), 'utf8');
-    const parsed = JSON.parse(raw);
-    return parsed;
-  } catch (e) {
-    return null;
+    try {
+      return JSON.parse(raw);
+    } catch (e) {
+      return null;
+    }
+  } finally {
+    // best-effort cleanup of temporary directory and its contents
+    try {
+      fsSync.rmSync(tmpDir, { recursive: true, force: true });
+    } catch (cleanupErr) {
+      // ignore cleanup failures
+    }
   }
 }
 
@@ -388,12 +400,13 @@ async function signPdfVisibleBase64(body: any): Promise<{ pdfBase64: string }> {
       let x: number, y: number, width: number, height: number;
       const defaultWidth = 180;
       const defaultHeight = 50;
+      const paddingLeft = typeof signer.paddingLeft === 'number' ? signer.paddingLeft : 0;
 
       if (signer.anchorPhrase && anchorPositions.has(si)) {
         const a = anchorPositions.get(si)!;
         // clamp anchor-left to page and compute width within page bounds
         const pageWidth = page.getWidth();
-        const anchorLeft = Math.max(0, a.x || 0);
+        const anchorLeft = Math.max(0, (a.x || 0) - paddingLeft);
         const anchorWidth = (a.width && a.width > 0) ? Math.min(a.width, Math.max(0, pageWidth - anchorLeft - 12)) : 0;
         width = typeof signer.width === 'number' ? signer.width : (anchorWidth > 0 ? anchorWidth : defaultWidth);
         height = typeof signer.height === 'number' ? signer.height : defaultHeight;
@@ -403,7 +416,7 @@ async function signPdfVisibleBase64(body: any): Promise<{ pdfBase64: string }> {
         const topOfBox = anchorTop - CM_IN_POINTS;
         y = Math.max(12, topOfBox - height);
       } else if (providedRect) {
-        x = signer.x;
+        x = signer.x - paddingLeft;
         y = signer.y;
         width = signer.width;
         height = signer.height;
@@ -411,7 +424,7 @@ async function signPdfVisibleBase64(body: any): Promise<{ pdfBase64: string }> {
         // default placement: bottom-left with margin
         width = typeof signer.width === 'number' ? signer.width : defaultWidth;
         height = typeof signer.height === 'number' ? signer.height : defaultHeight;
-        x = 36;
+        x = 36 - paddingLeft;
         y = 36;
       }
 
@@ -431,10 +444,13 @@ async function signPdfVisibleBase64(body: any): Promise<{ pdfBase64: string }> {
       // draw text lines inside the rect
       const nameText = signer.name ? String(signer.name) : '';
       const reasonText = signer.reason ? String(signer.reason) : '';
+      const locationText = signer.location ? String(signer.location) : '';
+      const showDate = typeof signer.showDate === 'boolean' ? signer.showDate : true;
       const lines: string[] = [];
       if (nameText) lines.push(nameText);
       if (reasonText) lines.push(reasonText);
-      lines.push(new Date().toISOString());
+      if (locationText) lines.push(locationText);
+      if (showDate) lines.push(new Date().toISOString());
 
       const padding = signer.anchorPhrase ? 0 : 6;
       let textY = y + height - padding - fontSize;
@@ -661,6 +677,178 @@ async function verifyPdfBase64(opts: { pdfBase64: string; details?: boolean }): 
   return { total, signatures };
 }
 
+// Find anchor phrase coordinates in a PDF and return the position information
+async function findAnchorPhraseBase64(opts: { pdfBase64: string; anchorPhrase: string; page?: number }): Promise<any> {
+  const { pdfBase64, anchorPhrase, page } = opts;
+  if (!pdfBase64 || typeof pdfBase64 !== 'string') {
+    throw new AppError(400, 'INVALID_INPUT', 'pdfBase64 is required');
+  }
+  if (!anchorPhrase || typeof anchorPhrase !== 'string') {
+    throw new AppError(400, 'INVALID_INPUT', 'anchorPhrase is required');
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { PDFDocument } = require('pdf-lib');
+
+  const inputBuf = Buffer.from(pdfBase64, 'base64');
+  const doc = await PDFDocument.load(inputBuf);
+  const pages = doc.getPages();
+
+  const results: any[] = [];
+
+  // Try pdfjs-dist first
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const pdfjs: any = require('pdfjs-dist/legacy/build/pdf.js');
+    const loadingTask = pdfjs.getDocument({ data: inputBuf });
+    const pdfJsDoc = await loadingTask.promise;
+
+    const findPhraseInPage = async (pageObj: any, phrase: string, pageNumber: number) => {
+      try {
+        const normPhrase = normalizeText(phrase);
+        if (!normPhrase) return null;
+        const viewport = pageObj.getViewport({ scale: 1.0 });
+        const textContent = await pageObj.getTextContent();
+        const items = textContent.items || [];
+        const MAX_JOIN = 8;
+        for (let i = 0; i < items.length; i++) {
+          let combined = '';
+          for (let j = i; j < Math.min(items.length, i + MAX_JOIN); j++) {
+            combined += String(items[j].str || '');
+            const normCombined = normalizeText(combined);
+            if (normCombined.indexOf(normPhrase) !== -1) {
+              let minX = Number.POSITIVE_INFINITY;
+              let maxX = Number.NEGATIVE_INFINITY;
+              let minY = Number.POSITIVE_INFINITY;
+              let maxY = Number.NEGATIVE_INFINITY;
+              for (let k = i; k <= j; k++) {
+                const it = items[k];
+                let tx: any;
+                try { tx = pdfjs.Util.transform(viewport.transform, it.transform); } catch (te) { tx = it.transform || [1, 0, 0, 1, 0, 0]; }
+                const itemX = tx[4];
+                const itemY = tx[5];
+                const fontHeight = Math.abs(tx[3]) || 10;
+                const itemWidth = typeof it.width === 'number' && it.width > 0 ? it.width : (String(it.str || '').length * (fontHeight * 0.5));
+                minX = Math.min(minX, itemX);
+                maxX = Math.max(maxX, itemX + itemWidth);
+                minY = Math.min(minY, itemY);
+                maxY = Math.max(maxY, itemY + fontHeight);
+              }
+              if (minX !== Number.POSITIVE_INFINITY) {
+                return { page: pageNumber, x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+              }
+            }
+          }
+        }
+      } catch (e) {
+        return null;
+      }
+      return null;
+    };
+
+    if (typeof page === 'number' && page > 0) {
+      try {
+        const p = await pdfJsDoc.getPage(page);
+        const found = await findPhraseInPage(p, anchorPhrase, page);
+        if (found) results.push(found);
+      } catch (e) { /* ignore */ }
+    } else {
+      for (let p = 1; p <= pdfJsDoc.numPages; p++) {
+        try {
+          const pdoc = await pdfJsDoc.getPage(p);
+          const found = await findPhraseInPage(pdoc, anchorPhrase, p);
+          if (found) results.push(found);
+        } catch (e) { /* ignore */ }
+      }
+    }
+  } catch (e) {
+    // ignore pdfjs errors and try pdf2json fallback below
+  }
+
+  // If not found with pdfjs, try pdf2json Node API
+  if (results.length === 0) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const pdf2jsonMod = require('pdf2json');
+      const PDFParserCtor = pdf2jsonMod.default || pdf2jsonMod.PDFParser || pdf2jsonMod;
+      const parser = new PDFParserCtor();
+      const parsed: any = await new Promise((resolve, reject) => {
+        parser.on('pdfParser_dataError', (err: any) => reject(err));
+        parser.on('pdfParser_dataReady', (data: any) => resolve(data));
+        try { parser.parseBuffer(inputBuf); } catch (pe) { reject(pe); }
+      });
+      const pagesJson = parsed?.Pages || parsed?.formImage?.Pages || [];
+      const phrase = String(anchorPhrase || '').trim();
+      if (!phrase) return { found: false, matches: [] };
+
+      const candidatePages = typeof page === 'number' && page > 0 ? [Math.min(pages.length - 1, page - 1)] : pagesJson.map((p: any, i: number) => i);
+      for (const pidx of candidatePages) {
+        const pJson = pagesJson[pidx];
+        if (!pJson || !Array.isArray(pJson.Texts)) continue;
+        for (const t of pJson.Texts) {
+          const runs = t.R || [];
+          let raw = runs.map((r: any) => (r && r.T) ? String(r.T) : '').join('');
+          try { raw = decodeURIComponent(raw); } catch (e) { }
+          let normRaw = normalizeText(raw);
+          const normPhrase = normalizeText(phrase);
+          if (normRaw.indexOf(normPhrase) !== -1) {
+            const pageJsonWidth = Number(pJson.Width) || 1;
+            const pageJsonHeight = Number(pJson.Height) || 1;
+            const scaleX = pages[pidx].getWidth() / pageJsonWidth;
+            const scaleY = pages[pidx].getHeight() / pageJsonHeight;
+            const ax = Number(t.x || 0) * scaleX;
+            const ay = Number(t.y || 0) * scaleY;
+            const aw = Number(t.w || 0) * scaleX;
+            const top = pages[pidx].getHeight() - ay;
+            results.push({ page: pidx + 1, x: ax, y: top, width: aw, height: 0 });
+          }
+        }
+      }
+    } catch (e) {
+      // ignore node-api failures and try CLI fallback below
+    }
+  }
+
+  // If still not found, try CLI-based pdf2json on resaved PDF
+  if (results.length === 0) {
+    try {
+      const resaved = await doc.save({ useObjectStreams: false });
+      const parsed = await runPdf2jsonCliOnPdfBuffer(Buffer.from(resaved));
+      const pagesJson = parsed?.Pages || parsed?.formImage?.Pages || [];
+      const phrase = String(anchorPhrase || '').trim();
+      if (!phrase) return { found: false, matches: [] };
+
+      const candidatePages = typeof page === 'number' && page > 0 ? [Math.min(pages.length - 1, page - 1)] : pagesJson.map((p: any, i: number) => i);
+      for (const pidx of candidatePages) {
+        const pJson = pagesJson[pidx];
+        if (!pJson || !Array.isArray(pJson.Texts)) continue;
+        for (const t of pJson.Texts) {
+          const runs = t.R || [];
+          let raw = runs.map((r: any) => (r && r.T) ? String(r.T) : '').join('');
+          try { raw = decodeURIComponent(raw); } catch (e) { }
+          let normRaw = normalizeText(raw);
+          const normPhrase = normalizeText(phrase);
+          if (normRaw.indexOf(normPhrase) !== -1) {
+            const pageJsonWidth = Number(pJson.Width) || 1;
+            const pageJsonHeight = Number(pJson.Height) || 1;
+            const scaleX = pages[pidx].getWidth() / pageJsonWidth;
+            const scaleY = pages[pidx].getHeight() / pageJsonHeight;
+            const ax = Number(t.x || 0) * scaleX;
+            const ay = Number(t.y || 0) * scaleY;
+            const aw = Number(t.w || 0) * scaleX;
+            const top = pages[pidx].getHeight() - ay;
+            results.push({ page: pidx + 1, x: ax, y: top, width: aw, height: 0 });
+          }
+        }
+      }
+    } catch (e) {
+      // ignore pdf2json failures
+    }
+  }
+
+  return { found: results.length > 0, matches: results };
+}
+
 // Public service API exported for other modules. Keep the low-level
 // `signPdfP12PlainBase64` as an internal helper and expose the public
 // wrapper `signPdfBase64` so callers do not depend on legacy internal names.
@@ -668,6 +856,7 @@ const pdfService = {
   signPdfBase64,
   signPdfVisibleBase64,
   verifyPdfBase64,
+  findAnchorPhraseBase64,
 };
 
 export default pdfService;

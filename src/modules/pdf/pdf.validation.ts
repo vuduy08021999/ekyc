@@ -29,6 +29,15 @@ export const verifyPdfSchema = z.object({
   requestId: z.string().optional(),
 });
 
+export const findAnchorSchema = z.object({
+  pdfBase64: z.string().min(1).refine((s) => {
+    try { return Buffer.from(s, 'base64').length <= 20 * 1024 * 1024; } catch { return false; }
+  }, { message: 'pdfBase64 must be valid base64 and <= 20MB' }),
+  anchorPhrase: z.string().min(1),
+  page: z.number().int().min(1).optional(),
+  requestId: z.string().optional(),
+});
+
 export const signVisibleSchema = z.object({
   pdfBase64: z.string().min(1).refine((s) => {
     try { return Buffer.from(s, 'base64').length <= 20 * 1024 * 1024; } catch { return false; }
@@ -45,6 +54,8 @@ export const signVisibleSchema = z.object({
     // anchorPhrase: if provided, server will locate this phrase and place the signature
     // 1cm below the phrase. When anchorPhrase is present, explicit x/y coordinates are ignored.
     anchorPhrase: z.string().optional(),
+    // paddingLeft: offset from anchor phrase x-coordinate or explicit x-coordinate (default: 0)
+    paddingLeft: z.number().optional(),
     // whether to draw a visible border for this signer (if omitted, border is drawn
     // only when x/y/width/height are explicitly provided)
     drawBorder: z.boolean().optional(),
@@ -52,6 +63,8 @@ export const signVisibleSchema = z.object({
     location: z.string().optional(),
     name: z.string().optional(),
     contactInfo: z.string().optional(),
+    // showDate: if false, timestamp will not be rendered in the signature box (default: true)
+    showDate: z.boolean().optional(),
     appearance: z.object({ color: z.string().regex(COLOR_RE).optional(), fontSize: z.number().optional() }).optional(),
   })).min(1),
   requestId: z.string().optional(),

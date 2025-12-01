@@ -1,60 +1,77 @@
-# API Quản lý P12 (chữ ký số)
+# API Quản lý P12 (Chữ ký số)
 
-Phiên bản: 2025-11-21 — tài liệu cho đội tích hợp và khách hàng kỹ thuật.
+> **Phiên bản:** 2025-12-01
 
-## Base path
+## 1. Tổng quan
 
-`/api/signature`
+| Thông tin | Giá trị |
+|-----------|---------|
+| Base path | `/api/signature` |
+| Content-Type | `application/json` |
+| Lưu trữ | `storage/p12` (có thể thay đổi qua `P12_STORAGE_DIR`) |
 
-## Tổng quan
+**Bảo mật:** Passphrase của `.p12` do server quản lý qua biến môi trường `SIGN_P12_PASSPHRASE`. Client không cần gửi passphrase.
 
-- Kiến trúc REST/JSON. Mọi HTTP response trả mã 200; trạng thái nghiệp vụ nằm trong body theo chuẩn `ApiResponse` (`status`: `SUCCESS | CLIENT_ERROR | SERVER_ERROR`).
-- File `.p12` và sidecar metadata lưu tại `storage/p12` (có thể đổi qua biến môi trường `P12_STORAGE_DIR`).
+---
 
-## Bảo mật (tóm tắt)
-
-- Passphrase của `.p12` KHÔNG gửi từ client. Server quản lý passphrase cố định qua biến môi trường `SIGN_P12_PASSPHRASE`. Nếu không đặt biến này, server tạm dùng `changeit` và log cảnh báo — KHÔNG dùng mặc định này ở production.
-
-## Chuẩn phản hồi
+## 2. Chuẩn phản hồi
 
 ```json
 {
   "status": "SUCCESS | CLIENT_ERROR | SERVER_ERROR",
   "code": "OK | ALREADY_EXISTS | NOT_FOUND | VALIDATION_ERROR | ...",
   "message": "Mô tả ngắn",
-  "data": { ... } | null,
-  "requestId": "string", // nếu client gửi
+  "data": { },
+  "requestId": "string",
   "timestamp": "ISO-8601"
 }
 ```
 
-## Endpoints
+---
 
-| Method | Path | Mô tả |
-|---|---|---|
-| POST | `/p12` | Tạo file `.p12` cho một `ekycId`. (Client gửi `ekycId`, `subject`, `daysValid`, `overwrite` — KHÔNG gửi passphrase) |
-| GET | `/p12/count?prefix=<prefix>` | Đếm file `.p12` có `ekycId` bắt đầu bằng prefix. |
-| GET | `/p12?prefix=&limit=&offset=&details=` | Liệt kê file `.p12` theo prefix, phân trang. |
-| DELETE | `/p12/:ekycId` | Xóa file `.p12` và sidecar metadata. |
+## 3. Quy tắc `ekycId`
+
+| Ràng buộc | Giá trị |
+|-----------|---------|
+| Pattern | `^[A-Za-z0-9_-]{1,128}$` |
+| Độ dài | 1 → 128 ký tự |
+| Cho phép | `A-Z`, `a-z`, `0-9`, `_`, `-` |
+| Không cho phép | Khoảng trắng, dấu chấm, `/`, `\`, Unicode |
+
+**Ví dụ hợp lệ:** `abc123`, `user_123`, `AC-01`
+
+**Ví dụ không hợp lệ:** `user.name`, `user name`, `../secret`, `đặng`
 
 ---
 
-### POST /p12 — Tạo P12
+## 4. Endpoints
 
-**Mục đích:** Server sinh chứng thư tự ký và xuất PKCS#12 (.p12) dựa trên thông tin client; tên file đặt theo `ekycId`.
+### 4.1. POST /api/signature/p12
 
-#### Request body (application/json)
+Tạo file `.p12` cho một `ekycId`.
 
-| Trường    | Kiểu     | Bắt buộc | Mô tả |
-|-----------|----------|----------|-------|
-| ekycId    | string   | ✔️       | Mã định danh nội bộ. Chỉ cho phép ký tự ASCII letters (A–Z a–z), số (0–9), dấu gạch dưới `_` và dấu gạch ngang `-`. Regex: `^[A-Za-z0-9_-]{1,128}$`. Tối đa 128 ký tự |
-| overwrite | boolean  | ✳️       | Ghi đè file nếu đã tồn tại (mặc định: `false`). |
-| subject   | object   | ✳️       | Thông tin subject của certificate (xem bảng chi tiết bên dưới). |
-| daysValid | number   | ✳️       | Số ngày hiệu lực của certificate (mặc định: `3650`). |
+**Request body:**
 
-Ví dụ:
+| Trường | Kiểu | Bắt buộc | Mô tả |
+|--------|------|----------|-------|
+| `ekycId` | string | ✔️ | Mã định danh (theo quy tắc trên) |
+| `overwrite` | boolean | | Ghi đè nếu đã tồn tại (mặc định: `false`) |
+| `subject` | object | | Thông tin certificate |
+| `daysValid` | number | | Số ngày hiệu lực (mặc định: `3650`) |
+| `requestId` | string | | ID để map response |
 
-```jsonc
+**Trường `subject`:**
+
+| Trường | Kiểu | Mô tả |
+|--------|------|-------|
+| `commonName` | string | Tên hiển thị (CN) |
+| `email` | string | Email liên hệ |
+| `organizationName` | string | Tên tổ chức |
+| `countryName` | string | Mã quốc gia (vd: `VN`) |
+
+**Ví dụ request:**
+
+```json
 {
   "ekycId": "abc123",
   "overwrite": false,
@@ -68,164 +85,120 @@ Ví dụ:
 }
 ```
 
-#### Trường trong `subject` (chi tiết)
+**Response `data`:**
 
-| Trường           | Kiểu   | Mô tả |
-|------------------|--------|-------|
-| commonName       | string | Common Name (CN). Tên hiển thị; recommended max length 64. |
-| email            | string | Email liên hệ (RFC-style). |
-| organizationName | string | Tên tổ chức/công ty. |
-| countryName      | string | Mã quốc gia ISO 3166-1 alpha-2 (2 ký tự), ví dụ: `VN`. |
+| Trường | Kiểu | Mô tả |
+|--------|------|-------|
+| `ekycId` | string | Mã định danh |
+| `filename` | string | Tên file `.p12` |
+| `path` | string | Đường dẫn file |
+| `createdAt` | string | Thời điểm tạo (ISO-8601) |
+| `serialNumber` | string | Serial number của certificate |
+| `fingerprint` | string | SHA-256 fingerprint |
 
-Chú ý: các trường trong `subject` là tùy chọn; server sẽ dùng `ekycId` làm `commonName` nếu `subject` không được cung cấp.
+---
 
-#### Hành vi
+### 4.2. GET /api/signature/p12/count
 
-- Nếu `overwrite=false` và file tồn tại → trả `CLIENT_ERROR` `code=ALREADY_EXISTS` (trong body).
-- Nếu `overwrite=true` → file sẽ được ghi đè hoàn toàn: service tạo file tạm (ví dụ `abc123.p12.1618033988.tmp`) rồi rename về tên đích. Trên hệ thống POSIX thao tác rename thường là atomic; trên Windows nếu rename trên file tồn tại thất bại, service sẽ thử xóa file cũ rồi rename. Kết quả là file `.p12` cũ bị thay thế hoàn toàn bằng file mới.
-- Sau khi `.p12` được ghi, server sẽ tạo/ghi đè sidecar `<ekycId>.json` chứa metadata (`serialNumber`, `fingerprint`, `createdAt`). Lưu ý: nếu việc ghi sidecar thất bại sau khi `.p12` đã được cập nhật, có thể tồn tại `.p12` mới mà sidecar không được cập nhật; client nên gọi `GET /p12?details=true` để xác minh metadata nếu cần.
-- Nếu thao tác ghi/rename thất bại (ví dụ vì file đang được lock hoặc quyền), API trả `SERVER_ERROR` trong body (HTTP header vẫn 200 theo quy ước). Server cố gắng dọn file tạm nếu có, nhưng không đảm bảo rollback hoàn toàn của file `.p12` trong mọi trường hợp.
+Đếm file `.p12` theo prefix.
 
-#### Response `data` (thành công)
+**Query params:**
 
-| Trường        | Kiểu     | Mô tả |
-|---------------|----------|-------|
-| ekycId        | string   | Mã định danh đã tạo |
-| filename      | string   | Tên file `.p12` trên server |
-| path          | string   | Đường dẫn tuyệt đối tới file trên server |
-| createdAt     | string   | Thời điểm tạo (ISO-8601) |
-| serialNumber  | string   | Serial number của certificate |
-| fingerprint   | string   | SHA-256 fingerprint của certificate |
+| Param | Mô tả |
+|-------|-------|
+| `prefix` | Lọc theo prefix (vd: `abc`). Bỏ trống = đếm tất cả |
 
-Ví dụ:
+**Response `data`:**
 
 ```json
-{
-  "ekycId": "abc123",
-  "filename": "abc123.p12",
-  "path": "storage/p12/abc123.p12",
-  "createdAt": "2025-11-21T12:34:56.789Z",
-  "serialNumber": "0123456789abcdef...",
-  "fingerprint": "abcdef0123456789..."
-}
+{ "prefix": "abc", "count": 42 }
 ```
 
 ---
 
-### GET /p12/count — Đếm theo prefix
+### 4.3. GET /api/signature/p12
 
-- Query: `prefix` (ví dụ `abc*` hoặc `abc`). Nếu không gửi → đếm toàn bộ.
-- Response `data`: `{ "prefix": "abc", "count": 42 }`.
+Liệt kê file `.p12` (có phân trang).
 
----
+**Query params:**
 
-### GET /p12 — Liệt kê theo prefix (phân trang)
+| Param | Mô tả | Mặc định |
+|-------|-------|----------|
+| `prefix` | Lọc theo prefix | |
+| `limit` | Số item tối đa | 100 |
+| `offset` | Bỏ qua N item đầu | 0 |
+| `details` | Trả thêm metadata (`serialNumber`, `fingerprint`) | false |
 
-- Query params: `prefix`, `limit` (default 100), `offset` (default 0), `details` (boolean).
-- Nếu `details=true`: server cố gắng đọc sidecar metadata để trả `serialNumber`/`fingerprint`.
-
-- Response `data` (ví dụ):
+**Response `data`:**
 
 ```json
 {
   "total": 123,
   "items": [
-    { "ekycId": "abc1", "filename": "abc1.p12", "sizeBytes": 12345, "createdAt": "...", "serialNumber": "...", "fingerprint": "..." },
-    { "ekycId": "abc2", "filename": "abc2.p12", "sizeBytes": 54321, "createdAt": "..." }
+    {
+      "ekycId": "abc1",
+      "filename": "abc1.p12",
+      "sizeBytes": 12345,
+      "createdAt": "...",
+      "serialNumber": "...",
+      "fingerprint": "..."
+    }
   ]
 }
 ```
 
 ---
 
-### DELETE /p12/:ekycId — Xóa P12
+### 4.4. DELETE /api/signature/p12/:ekycId
 
-- Path param: `ekycId`.
-- Hành vi: xóa file và sidecar; nếu không tìm thấy → trả `CLIENT_ERROR` `code=NOT_FOUND`.
+Xóa file `.p12` và metadata.
 
-## Ràng buộc & validation (chi tiết)
+**Path param:** `ekycId`
 
-### Quy tắc `ekycId`
+**Response:** Trả `NOT_FOUND` nếu không tìm thấy.
 
-- Pattern (server-side): `^[A-Za-z0-9_-]{1,128}$` — chỉ cho phép ký tự ASCII letters (A–Z a–z), chữ số (0–9), dấu gạch dưới `_` và dấu gạch ngang `-`. Độ dài từ 1 đến 128 ký tự.
-- Không cho phép khoảng trắng, dấu chấm (`.`), dấu gạch chéo (`/`), hoặc dấu backslash (`\\`), hoặc ký tự Unicode (ví dụ: `đ`, `á`). Các ký tự này bị từ chối để tránh path traversal và các vấn đề với hệ thống file.
+---
 
-Ví dụ hợp lệ:
-- `abc`, `user_123`, `AC-01`, `a1_b2-c3`
+## 5. Ví dụ request
 
-Ví dụ không hợp lệ (bị server từ chối):
-- `user.name` (chứa `.`)
-- `user name` (chứa khoảng trắng)
-- `../secret` hoặc `sub/dir` (chứa `/` gây path traversal)
-- `đặng` (ký tự Unicode)
-- `` (chuỗi rỗng)
-- chuỗi dài hơn 128 ký tự
-
-### Hành vi khi input không hợp lệ
-
-- Server sử dụng validator (Zod) để kiểm tra request. Nếu `ekycId` không phù hợp sẽ trả `status: "CLIENT_ERROR"`, `code: "VALIDATION_ERROR"` và `data` mô tả lỗi (ví dụ như trường `ekycId` bị lỗi). HTTP header vẫn là 200 theo quy ước dự án.
-
-Ví dụ phản hồi lỗi (validation):
-
-```json
-{
-  "status": "CLIENT_ERROR",
-  "code": "VALIDATION_ERROR",
-  "message": "Request body validation failed",
-  "data": { "ekycId": { "_errors": ["Invalid format: only A-Za-z0-9_- allowed"] } },
-  "timestamp": "2025-11-21T12:34:56.789Z"
-}
-```
-
-### Snippet kiểm tra phía client
-
-JavaScript (Node / browser):
-
-```js
-const EKYC_RE = /^[A-Za-z0-9_-]{1,128}$/;
-function validateEkycId(id) {
-  if (typeof id !== 'string') return false;
-  return EKYC_RE.test(id);
-}
-```
-
-PowerShell:
+**PowerShell - Tạo P12:**
 
 ```powershell
-$ekycId = 'abc123'
-if (-not ($ekycId -match '^[A-Za-z0-9_-]{1,128}$')) {
-  Write-Error 'ekycId invalid'
-}
+$body = @{
+  ekycId = "abc123"
+  overwrite = $false
+  subject = @{ commonName = "Nguyen Van A"; email = "a@example.com" }
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri "http://localhost:3000/api/signature/p12" `
+  -Method Post -Body $body -ContentType "application/json"
 ```
 
-### Lý do và khuyến nghị
+**curl - Tạo P12:**
 
-- Vì file `.p12` được lưu trên filesystem theo tên `ekycId.p12`, giới hạn ký tự giúp tránh path traversal, encoding issues và rủi ro khi di chuyển giữa hệ điều hành (Windows/Unix) hoặc khi làm backup/restore.
-- Nếu bạn cần lưu tên hiển thị có dấu hoặc khoảng trắng (ví dụ tên người dùng tiếng Việt), hãy gửi trường `displayName`/`subject.commonName` trong body; `ekycId` vẫn giữ dạng an toàn để lưu file. Lưu `displayName` trong sidecar metadata nếu cần hiển thị cho người dùng.
-- Client nên trim whitespace trước khi gửi và có thể URL-encode khi sử dụng `ekycId` trong URL path.
+```bash
+curl -X POST http://localhost:3000/api/signature/p12 \
+  -H "Content-Type: application/json" \
+  -d '{"ekycId":"abc123","subject":{"commonName":"Nguyen Van A"}}'
+```
 
-## Bảo mật & vận hành
+---
 
-- Bắt buộc authentication & RBAC trên production.
-- Quản lý private key / secrets nên đặt trong KMS/HSM hoặc biến môi trường an toàn; không commit vào mã nguồn.
-- Revocation: cân nhắc CRL hoặc chứng thư ngắn hạn (short-lived) tùy yêu cầu.
+## 6. Mẫu phản hồi lỗi
 
-## Mẫu phản hồi lỗi
-
-### Thiếu/không hợp lệ field
+**Validation error:**
 
 ```json
 {
   "status": "CLIENT_ERROR",
   "code": "VALIDATION_ERROR",
   "message": "Request body validation failed",
-  "data": { "ekycId": { "_errors": ["Required or invalid format"] } },
-  "requestId": "...",
+  "data": { "ekycId": { "_errors": ["Invalid format"] } },
   "timestamp": "..."
 }
 ```
 
-### Đã tồn tại (overwrite=false)
+**Đã tồn tại:**
 
 ```json
 {
@@ -236,49 +209,3 @@ if (-not ($ekycId -match '^[A-Za-z0-9_-]{1,128}$')) {
   "timestamp": "..."
 }
 ```
-
-## Gợi ý kiểm thử nhanh
-
-### PowerShell
-
-Tạo P12 (KHÔNG gửi passphrase):
-```powershell
-$body = @{
-  ekycId = "abc123"
-  overwrite = $false
-  subject = @{ commonName = "Nguyen Van A"; email = "a@example.com" }
-} | ConvertTo-Json
-
-Invoke-RestMethod -Uri "http://localhost:3000/api/signature/p12" -Method Post -Body $body -ContentType "application/json"
-```
-
-Đếm theo prefix:
-```powershell
-Invoke-RestMethod -Uri "http://localhost:3000/api/signature/p12/count?prefix=abc*" -Method Get
-```
-
-Liệt kê (có details):
-```powershell
-Invoke-RestMethod -Uri "http://localhost:3000/api/signature/p12?prefix=abc*&limit=50&offset=0&details=true" -Method Get
-```
-
-Xóa:
-```powershell
-Invoke-RestMethod -Uri "http://localhost:3000/api/signature/p12/abc123" -Method Delete
-```
-
-### curl (bash)
-
-```bash
-curl -X POST http://localhost:3000/api/signature/p12 \
-  -H "Content-Type: application/json" \
-  -d '{"ekycId":"abc123","overwrite":false,"subject":{"commonName":"Nguyen Van A","email":"a@example.com"}}'
-```
-
-## Vị trí code liên quan
-
-- `src/modules/signature/` — `signature.routes.ts`, `signature.service.ts`, `cert_generator.ts`, `signature.validation.ts`.
-
----
-
-Nếu bạn muốn tôi tiếp tục mở rộng (nhúng marker HMAC, hoặc thêm endpoint sign/verify PDF), cho biết lựa chọn để tôi triển khai tiếp.
