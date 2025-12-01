@@ -1,209 +1,80 @@
-# OCR & Face API (Node.js + TypeScript)
+# HƯỚNG DẪN CÀI ĐẶT & CHẠY (thư mục `test`)
 
-> Dự án triển khai 4 API OCR/khuôn mặt với kiến trúc hiện đại (route → service → provider). Request gửi ảnh base64 + khoá Gemini ngay trong body, response luôn HTTP 200 nhưng phân loại rõ trạng thái trong JSON.
+Tệp này chỉ chứa hướng dẫn ngắn gọn để cài đặt và chạy dịch vụ thử nghiệm nằm trong `test`.
 
-> **Tài liệu dành cho khách hàng (không cần biết backend):** xem `docs/api-khach-hang.md`.
+Yêu cầu:
 
-## 1. Kiến trúc & luồng xử lý
+- Node.js (khuyến nghị LTS, ví dụ v18+)
+- npm
+- (Tùy chọn) Docker
 
-- **Stack:** Node.js LTS, TypeScript, Express 5, `@google/generative-ai`.
-- **Modules:**
-  - `modules/ocr`: CCCD & GPLX.
-  - `modules/face`: so sánh & validate khuôn mặt.
-- **Provider:** tầng provider tách biệt với hai implementation thực tế `GeminiOcrProvider` & `GeminiFaceProvider`, gọi trực tiếp SDK `@google/generative-ai` bằng khoá/model khách gửi lên.
-- **Stateless images:** server không ghi ảnh ra đĩa; base64 được stream thẳng vào Gemini theo từng request (đáp ứng yêu cầu không lưu trữ).
-- **DTO chia sẻ:**
-  - `ApiResponse<T>`: chuẩn hóa body phản hồi.
-  - `BaseGeminiRequestDto`: chứa `geminiApiKey`, `prompt`, `model`, `requestId`, `aiRequestTimeoutMs`, `aiMaxRetries`.
+1) Cài đặt và build
 
-**Pipeline mỗi request:**
-1. Client gửi POST JSON (ảnh base64 + khoá + model mong muốn + requestId + thông số timeout/retry cho Gemini; phần structured output do server toàn quyền quyết định).
-2. Middleware Zod validate.
-3. Service chuẩn hóa payload và gọi provider Gemini.
-4. Provider thực thi nghiệp vụ (gọi Gemini hoặc provider cắm ngoài) → controller đóng gói `ApiResponse` → gửi HTTP 200.
+Mở terminal ở thư mục gốc của repository và chạy:
 
-## 2. Chuẩn phản hồi (HTTP 200)
+```pwsh
+# Cài dependencies cho thư mục test
+npm --prefix test ci
 
-```json
-{
-  "status": "SUCCESS" | "CLIENT_ERROR" | "SERVER_ERROR",
-  "code": "OK" | "VALIDATION_ERROR" | "INTERNAL_ERROR" | "...",
-  "message": "Mô tả ngắn",
-  "data": { ... } | null,
-  "requestId": "uuid",
-  "timestamp": "ISO-8601"
-}
+# Build TypeScript -> dist
+npm --prefix test run build
 ```
 
-- `SUCCESS`: xử lý xong (kể cả kết quả nghiệp vụ âm tính).
-- `CLIENT_ERROR`: lỗi input, trả chi tiết trong `data`.
-- `SERVER_ERROR`: lỗi nội bộ (ví dụ gọi Gemini fail sau này).
+2) Chạy dịch vụ
 
-## 3. Cài đặt & chạy
+Chạy ở chế độ phát triển (auto-reload):
 
-Yêu cầu: Node.js ≥ 18.
-
-```powershell
-npm install          # cài deps
-npm run dev          # chạy dev (ts-node-dev)
-npm run build        # biên dịch sang dist/
-npm start            # chạy bản build
-npm test             # Jest + Supertest
+```pwsh
+npm --prefix test run dev
 ```
 
-Port mặc định `3000` (set `PORT` nếu muốn đổi).
+Chạy ở chế độ production (build rồi chạy):
 
-## 4. API chi tiết
-
-| Endpoint | Trường riêng bắt buộc | Mô tả |
-| --- | --- | --- |
-| `POST /api/ocr/id-card` | `imageBase64` | OCR căn cước |
-| `POST /api/ocr/driver-license` | `imageBase64` | OCR GPLX |
-| `POST /api/face/compare` | `sourceImageBase64`, `targetImageBase64` | So sánh hai khuôn mặt |
-| `POST /api/face/validate` | `imageBase64` | Kiểm tra ảnh khuôn mặt |
-
-### Các trường chung trong body
-
-```json
-{
-  "geminiApiKey": "bắt buộc",
-  "model": "bắt buộc (ví dụ gemini-flash-latest)",
-  "requestId": "bắt buộc phía client để map response",
-  "aiRequestTimeoutMs": "bắt buộc, timeout tối đa mỗi lần gọi Gemini (ms)",
-  "aiMaxRetries": "bắt buộc, số lần retry tối đa nếu gặp lỗi",
-  "...": "các field ảnh cụ thể"
-}
+```pwsh
+npm --prefix test ci
+npm --prefix test run build
+npm --prefix test start
 ```
 
-- `model`: client chọn trực tiếp model Gemini (ví dụ `gemini-flash-latest`, `gemini-2.0-flash`). Đây là trường bắt buộc.
-- `requestId`: client tự sinh (UUID, timestamp...). Server sẽ echo đúng giá trị này trong mọi response để dễ khớp log.
-- `aiRequestTimeoutMs`: thời gian tối đa (ms) cho một lượt gọi Gemini. Server sẽ bọc Promise bằng `Promise.race([call, timeout])` và nếu quá hạn sẽ trả `SERVER_ERROR`.
-- `aiMaxRetries`: số lần retry tối đa khi gọi Gemini lỗi (>= 0). Server sẽ dùng thông số này để cấu hình vòng lặp retry/backoff.
-- `documentSide`: (áp dụng cho OCR) chỉ chấp nhận `FRONT`. Nếu gửi `BACK`, API sẽ trả `CLIENT_ERROR` với `code = UNSUPPORTED_SIDE`.
-- Structured JSON: server tự định nghĩa schema chuẩn cho từng use case và sẽ nội suy khi gọi Gemini, client không cần (và không thể) truyền lên.
+Hoặc thiết lập biến môi trường rồi chạy trực tiếp:
 
-### Ví dụ request OCR CCCD
-
-```json
-{
-  "geminiApiKey": "YOUR_GEMINI_KEY",
-  "prompt": "Please extract required fields as JSON.",
-  "model": "gemini-flash-latest",
-  "requestId": "req-123",
-  "aiRequestTimeoutMs": 5000,
-  "aiMaxRetries": 2,
-  "imageBase64": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ...",
-  "documentSide": "FRONT"
-}
+```pwsh
+$env:SIGN_P12_PASSPHRASE='changeit'; $env:SIGN_SECURITY_SECRET='changeit'; npm --prefix test start
 ```
 
-### Ví dụ request Face Validate (schema do server chọn)
+3) Biến môi trường quan trọng
 
-```json
-{
-  "geminiApiKey": "YOUR_GEMINI_KEY",
-  "prompt": "Please return face quality and isLive as JSON.",
-  "model": "gemini-2.0-flash",
-  "requestId": "req-face",
-  "aiRequestTimeoutMs": 7000,
-  "aiMaxRetries": 1,
-  "imageBase64": "data:image/png;base64,iVBORw0KGgo..."
-}
+- `SIGN_P12_PASSPHRASE` — passphrase dùng khi đọc/ghi file `.p12` (dev mặc định: `changeit`).
+- `SIGN_SECURITY_SECRET` — secret dùng để gắn marker cho chứng chỉ do server tạo.
+- `P12_STORAGE_DIR` — đường dẫn tới thư mục chứa `.p12` (mặc định: `test/storage/p12`).
+- `PORT` — cổng HTTP (mặc định: `3000`).
+
+4) Tạo thư mục lưu P12 (nếu cần)
+
+```pwsh
+New-Item -ItemType Directory -Path .\test\storage\p12 -Force
 ```
 
-Server sẽ dựa trên endpoint để quyết định structured schema phù hợp, ví dụ `face.validate` tập trung vào `isLive`, `qualityScore`, `reason`.
+5) (Tùy chọn) Chạy bằng Docker
 
-### Ví dụ response SUCCESS
+Xây image (từ thư mục gốc):
 
-```json
-{
-  "status": "SUCCESS",
-  "code": "OK",
-  "message": "Face validate success",
-  "data": {
-    "isLive": true,
-    "qualityScore": 0.83,
-    "reason": "OK"
-  },
-  "requestId": "40b1...",
-  "timestamp": "2025-11-21T04:15:27.211Z"
-}
+```pwsh
+docker build -t ekyc-test -f Dockerfile .
 ```
 
-### Ví dụ response CLIENT_ERROR
+Chạy container (ví dụ ánh xạ thư mục P12 từ host vào container):
 
-```json
-{
-  "status": "CLIENT_ERROR",
-  "code": "VALIDATION_ERROR",
-  "message": "Request body validation failed",
-  "data": {
-    "geminiApiKey": { "_errors": ["Required"] }
-  },
-  "requestId": "1f86...",
-  "timestamp": "2025-11-21T04:16:10.010Z"
-}
+```pwsh
+docker run -d --name ekyc-deheus --restart=always -p 3000:3000 -e SIGN_P12_PASSPHRASE=superp11442ssekycdeheus20226985 -e SIGN_SECURITY_SECRET=superp11442ssekycdeheus20226985 -v "D:\Arito\ekyc-deheus\storage\p12:C:\app\storage\p12"  --log-opt max-size=10m  --log-opt max-file=5  ekyc-deheus
 ```
 
-## 5. Structured JSON & tích hợp Gemini
+Lưu ý: điều chỉnh đường dẫn `-v` theo môi trường của bạn.
 
-- Server định nghĩa sẵn `serverResponseConfig` cho từng endpoint (ví dụ `ocr.idCard`, `face.validate`). Mỗi cấu hình gồm `responseMimeType` và `responseJsonSchema` chặt chẽ.
-- Khi nhận request, backend xác định endpoint tương ứng rồi tự động gắn cấu hình này vào lệnh gọi Gemini. Client không cần truyền thêm thông tin.
-- Ví dụ minh hoạ:
+6) Kiểm tra
 
-  ```ts
-  import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
+- Khi server chạy, xem log sẽ thấy `Server listening on port 3000`.
+- API chính nằm tại `http://localhost:3000` (chi tiết route trong `test/src/modules/pdf`).
 
-  const serverResponseConfig = {
-    faceValidate: {
-      responseMimeType: 'application/json',
-      responseSchema: {
-        type: SchemaType.OBJECT,
-        properties: {
-          isLive: { type: SchemaType.BOOLEAN },
-          qualityScore: { type: SchemaType.NUMBER },
-          reason: { type: SchemaType.STRING },
-        },
-        required: ['isLive', 'qualityScore', 'reason'],
-      },
-    },
-  } as const;
-
-  const config = serverResponseConfig.faceValidate;
-
-  const genAI = new GoogleGenerativeAI(request.geminiApiKey);
-  const model = genAI.getGenerativeModel({ model: request.model });
-
-  const response = await model.generateContent({
-    contents,
-    generationConfig: {
-      responseMimeType: config.responseMimeType,
-      responseSchema: config.responseSchema,
-    },
-  });
-  ```
-
-- Sau khi nhận kết quả, server vẫn có thể `JSON.parse()` và validate lại bằng Zod/JSON Schema nội bộ để bảo đảm dữ liệu chuẩn trước khi đóng gói `ApiResponse` gửi cho client.
-
-## 6. Lộ trình mở rộng
-
-1. `npm install @google/genai zod-to-json-schema` (nếu chưa có ở client).
-2. Bổ sung thêm provider (ví dụ fine-tuned model nội bộ) implement interface sẵn có, gọi API đúng mẫu.
-3. Tuỳ môi trường mà bind provider phù hợp (Gemini production, provider on-prem cho môi trường đặc thù).
-4. Cân nhắc vô hiệu hóa `FileSystemImageStorageService` ở production (stateless tuyệt đối, ảnh chỉ lưu tạm trong request hoặc upload thẳng Gemini File API).
-
-## 7. Testing
-
-- `tests/api.test.ts` dùng Jest + Supertest để smoke test 4 endpoint + case lỗi validate + case client truyền `model` khác mặc định + case OCR mặt sau trả `UNSUPPORTED_SIDE` + echo `requestId`.
-- Gemini SDK được mock hoàn toàn trong test để không gọi mạng, các response mẫu được enqueue thủ công.
-- Chạy test:
-
-  ```powershell
-  npm test
-  ```
-
----
-
-> Bạn có thể bổ sung thêm ví dụ cURL/Postman, tài liệu mapping thực tế với Gemini, hoặc logging nâng cao theo nhu cầu đội ngũ.
-
+Nếu bạn cần tôi bổ sung ví dụ curl cho các API (tạo P12, sign, verify) hoặc chuyển toàn bộ README sang tiếng Việt đầy đủ hơn, báo tôi biết.
 
